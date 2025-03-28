@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, Vault } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFolder, Vault } from 'obsidian';
 import { simpleGit, SimpleGit, CleanOptions, SimpleGitOptions } from 'simple-git';
 import { setIntervalAsync, clearIntervalAsync } from 'set-interval-async';
 
@@ -12,6 +12,7 @@ interface GHSyncSettings {
 	syncinterval: number;
 	isSyncOnLoad: boolean;
 	checkStatusOnLoad: boolean;
+	gitDirectory: string;
 }
 
 const DEFAULT_SETTINGS: GHSyncSettings = {
@@ -20,6 +21,7 @@ const DEFAULT_SETTINGS: GHSyncSettings = {
 	syncinterval: 0,
 	isSyncOnLoad: false,
 	checkStatusOnLoad: true,
+	gitDirectory: '',
 }
 
 
@@ -33,12 +35,17 @@ export default class GHSyncPlugin extends Plugin {
 
 		const remote = this.settings.remoteURL.trim();
 
+		// Use the subdirectory provided by the user or fallback to the root directory
+		let gitBaseDir = this.settings.gitDirectory
+			? `${this.app.vault.adapter.getBasePath()}/${this.settings.gitDirectory}`
+			: this.app.vault.adapter.getBasePath();
+
 		simpleGitOptions = {
 			//@ts-ignore
-		    baseDir: this.app.vault.adapter.getBasePath(),
-		    binary: this.settings.gitLocation + "git",
-		    maxConcurrentProcesses: 6,
-		    trimmed: false,
+			baseDir: gitBaseDir,
+			binary: this.settings.gitLocation + "git",
+			maxConcurrentProcesses: 6,
+			trimmed: false,
 		};
 		git = simpleGit(simpleGitOptions);
 
@@ -268,6 +275,27 @@ class GHSyncSettingTab extends PluginSettingTab {
 				})
         	.inputEl.addClass('my-plugin-setting-text2'));
 
+		new Setting(containerEl)
+			.setName("Git Directory")
+			.setDesc("Select a subdirectory within your Obsidian Vault to use for Git operations. The default is the 'Obsidian Vault' directory.")
+			.addDropdown(async (dropdown) => { dropdown
+				.addOption('', 'Obsidian Vault')
+				.addOptions(
+					(await this.app.vault.adapter.list('')).folders
+						.map(filePath => this.app.vault.getAbstractFileByPath(filePath))
+						.filter(file => file instanceof TFolder)
+						.reduce((acc, dir: TFolder) => {
+							acc[dir.path] = dir.path;
+							return acc;
+						}, {} as Record<string, string>)
+				)
+				.setValue(this.plugin.settings.gitDirectory)
+				.onChange(async (value: string) => {
+					this.plugin.settings.gitDirectory = value;
+					await this.plugin.saveSettings();
+				})
+			});
+		
 		new Setting(containerEl)
 			.setName('Check status on startup')
 			.setDesc('Check to see if you are behind remote when you start Obsidian.')
